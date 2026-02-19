@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+subscribers.json
+pools_cache.json
+*.log
+*.tsbuildinfo

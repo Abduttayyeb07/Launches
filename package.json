@@ -1,0 +1,27 @@
+{
+  "name": "mdf-launch-tracker",
+  "version": "1.0.0",
+  "description": "Production-grade MDF + Oroswap launch tracker via Zig RPC WebSocket",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "dotenv": "^16.4.5",
+    "node-telegram-bot-api": "^0.67.0",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.20",
+    "@types/node-telegram-bot-api": "^0.64.13",
+    "@types/ws": "^8.5.10",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.4.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

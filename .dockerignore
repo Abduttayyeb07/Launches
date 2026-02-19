@@ -1,0 +1,11 @@
+node_modules
+dist
+.env
+subscribers.json
+pools_cache.json
+*.log
+.git
+.gitignore
+README.md
+.dockerignore
+docker-compose.yml

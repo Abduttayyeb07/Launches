@@ -1,0 +1,13 @@
+services:
+  tracker:
+    build: .
+    container_name: mdf-tracker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DATA_DIR=/app/data
+    volumes:
+      - tracker-data:/app/data
+
+volumes:
+  tracker-data:
