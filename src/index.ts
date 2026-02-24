@@ -1,4 +1,4 @@
-import * as dotenv from 'dotenv';
+﻿import * as dotenv from 'dotenv';
 dotenv.config();
 
 import WebSocket from 'ws';
@@ -6,15 +6,20 @@ import axios from 'axios';
 import TelegramBot from 'node-telegram-bot-api';
 import * as fs from 'fs';
 import * as path from 'path';
-import { startPoolMonitor, stopPoolMonitor, PoolInfo } from './poolMonitor';
 
-// ─── Environment ─────────────────────────────────────────────────────────────
+// --- Environment -------------------------------------------------------------
 
 const RPC_WS = process.env['RPC_WS'];
 const MDF_CONTRACT = process.env['MDF_CONTRACT'];
 const MDF_TOKEN_API_BASE = process.env['MDF_TOKEN_API_BASE'] ?? '';
 const LOG_LEVEL = (process.env['LOG_LEVEL'] ?? 'info').toLowerCase();
 const TELEGRAM_BOT_TOKEN = process.env['TELEGRAM_BOT_TOKEN'];
+const DEGENTER_LINK_TEMPLATE =
+  process.env['DEGENTER_LINK_TEMPLATE'] ?? 'https://app.degenter.io/token/{denom}';
+const OROSWAP_LINK_TEMPLATE =
+  process.env['OROSWAP_LINK_TEMPLATE'] ?? 'https://app.oroswap.org/swap?from={denom}&to=uzig';
+const ZIGSCAN_TX_TEMPLATE =
+  process.env['ZIGSCAN_TX_TEMPLATE'] ?? 'https://www.zigscan.org/tx/{tx_hash}';
 
 if (!RPC_WS) {
   console.error('[FATAL] RPC_WS environment variable is not set. Exiting.');
@@ -29,7 +34,7 @@ if (!TELEGRAM_BOT_TOKEN) {
   process.exit(1);
 }
 
-// ─── Logger ──────────────────────────────────────────────────────────────────
+// --- Logger ------------------------------------------------------------------
 
 const LEVELS: Record<string, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 const currentLevel = LEVELS[LOG_LEVEL] ?? 1;
@@ -41,7 +46,7 @@ function log(level: 'debug' | 'info' | 'warn' | 'error', msg: string): void {
   }
 }
 
-// ─── Subscriber Store ─────────────────────────────────────────────────────────
+// --- Subscriber Store ---------------------------------------------------------
 
 const DATA_DIR = process.env['DATA_DIR'] ?? '.';
 const SUBSCRIBERS_FILE = path.resolve(DATA_DIR, 'subscribers.json');
@@ -70,12 +75,12 @@ function saveSubscribers(subs: Set<number>): void {
 const subscribers: Set<number> = loadSubscribers();
 log('info', `[STORE] Loaded ${subscribers.size} subscriber(s) from disk`);
 
-// ─── Telegram Bot ─────────────────────────────────────────────────────────────
+// --- Telegram Bot -------------------------------------------------------------
 
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN as string, { polling: true });
 
-const SUBSCRIBE_BTN = { text: '🔔 Subscribe to MDF Launches', callback_data: 'subscribe' };
-const UNSUBSCRIBE_BTN = { text: '🔕 Unsubscribe', callback_data: 'unsubscribe' };
+const SUBSCRIBE_BTN = { text: '?? Subscribe to MDF Launches', callback_data: 'subscribe' };
+const UNSUBSCRIBE_BTN = { text: '?? Unsubscribe', callback_data: 'unsubscribe' };
 
 function getKeyboard(chatId: number): TelegramBot.InlineKeyboardMarkup {
   const isSubbed = subscribers.has(chatId);
@@ -93,9 +98,9 @@ bot.onText(/\/start/, (msg) => {
   bot
     .sendMessage(
       chatId,
-      `👋 Hey ${firstName}!\n\n` +
-        `I track *MemesDotFun (MDF)* launches and *Degenter new pools* in real-time.\n\n` +
-        `${isSubbed ? '✅ You are currently *subscribed*.' : '📭 You are not subscribed yet.'}\n\n` +
+      `?? Hey ${firstName}!\n\n` +
+        `I track *MemesDotFun (MDF)* token launches in real-time.\n\n` +
+        `${isSubbed ? '? You are currently *subscribed*.' : '?? You are not subscribed yet.'}\n\n` +
         `Press the button below to ${isSubbed ? 'unsubscribe' : 'subscribe'}:`,
       {
         parse_mode: 'Markdown',
@@ -114,8 +119,8 @@ bot.onText(/\/status/, (msg) => {
     .sendMessage(
       chatId,
       isSubbed
-        ? '✅ You are *subscribed* to MDF launch alerts.'
-        : '📭 You are *not subscribed*. Press /start to subscribe.',
+        ? '? You are *subscribed* to MDF launch alerts.'
+        : '?? You are *not subscribed*. Press /start to subscribe.',
       {
         parse_mode: 'Markdown',
         reply_markup: getKeyboard(chatId),
@@ -136,12 +141,12 @@ bot.on('callback_query', (query) => {
     log('info', `[TG] New subscriber: chatId=${chatId} (total: ${subscribers.size})`);
 
     bot
-      .answerCallbackQuery(query.id, { text: '✅ Subscribed! You will receive MDF launch alerts.' })
+      .answerCallbackQuery(query.id, { text: '? Subscribed! You will receive MDF launch alerts.' })
       .catch(() => undefined);
 
     bot
       .editMessageText(
-        `✅ *Subscribed!*\n\nYou will now receive real-time MDF launch alerts.\n\nPress the button to unsubscribe anytime.`,
+        `? *Subscribed!*\n\nYou will now receive real-time MDF launch alerts.\n\nPress the button to unsubscribe anytime.`,
         {
           chat_id: chatId,
           message_id: messageId,
@@ -156,12 +161,12 @@ bot.on('callback_query', (query) => {
     log('info', `[TG] Unsubscribed: chatId=${chatId} (total: ${subscribers.size})`);
 
     bot
-      .answerCallbackQuery(query.id, { text: '🔕 Unsubscribed. You will no longer receive alerts.' })
+      .answerCallbackQuery(query.id, { text: '?? Unsubscribed. You will no longer receive alerts.' })
       .catch(() => undefined);
 
     bot
       .editMessageText(
-        `🔕 *Unsubscribed.*\n\nYou will no longer receive MDF launch alerts.\n\nPress the button to re-subscribe anytime.`,
+        `?? *Unsubscribed.*\n\nYou will no longer receive MDF launch alerts.\n\nPress the button to re-subscribe anytime.`,
         {
           chat_id: chatId,
           message_id: messageId,
@@ -208,7 +213,7 @@ bot.on('polling_error', (err) => {
 
 log('info', `[TG] Telegram bot started (polling)`);
 
-// ─── Broadcast to Subscribers ─────────────────────────────────────────────────
+// --- Broadcast to Subscribers -------------------------------------------------
 
 async function broadcastLaunch(data: LaunchData): Promise<void> {
   if (subscribers.size === 0) {
@@ -220,21 +225,33 @@ async function broadcastLaunch(data: LaunchData): Promise<void> {
   const name = data.name ?? 'Unknown';
   const denom = data.denom ?? 'Unknown';
   const creator = data.creator ?? 'Unknown';
-  const image = data.imageUri;
+  const txHash = data.txHash;
+  const tokenName = name !== 'Unknown' ? name : symbol;
 
-  const text =
-    `🚀 *New MDF Launch!*\n\n` +
-    `🪙 *Symbol:* \`${symbol}\`\n` +
-    `📛 *Name:* ${name}\n` +
-    `🔗 *Denom:* \`${denom}\`\n` +
-    `👤 *Creator:* \`${creator}\`\n` +
-    (image ? `🖼 *Image:* [View](${image})\n` : '') +
-    `\n_Source: denom\\_metadata\\_updated_`;
+  const htmlText =
+    `<blockquote>⚡ New Token Detected Onchain!</blockquote>\n\n` +
+    `🌕 <b>Token Name:</b> ${escapeHtml(tokenName)}\n\n` +
+    `📜 <b>Contract:</b>\n` +
+    `<code>${escapeHtml(denom)}</code>\n\n` +
+    `👤 <b>Creator:</b> ${escapeHtml(creator)}`;
+  const degenterUrl = buildTemplateUrl(DEGENTER_LINK_TEMPLATE, denom, txHash);
+  const oroswapUrl = buildTemplateUrl(OROSWAP_LINK_TEMPLATE, denom, txHash);
+  const txUrl = buildTemplateUrl(ZIGSCAN_TX_TEMPLATE, denom, txHash);
+  const launchKeyboard: TelegramBot.InlineKeyboardMarkup = {
+    inline_keyboard: [[
+      { text: 'Degenter', url: degenterUrl },
+      { text: 'Oroswap', url: oroswapUrl },
+      { text: 'TX Link', url: txUrl },
+    ]],
+  };
 
   const sendPromises = [...subscribers].map(async (chatId) => {
     try {
-      await bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
-      log('debug', `[TG] Sent launch alert to chatId=${chatId}`);
+      await bot.sendMessage(chatId, htmlText, {
+        parse_mode: 'HTML',
+        reply_markup: launchKeyboard,
+      });
+      log('debug', `[TG] Sent styled launch alert to chatId=${chatId}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       // If user blocked the bot or chat not found, remove them
@@ -252,47 +269,7 @@ async function broadcastLaunch(data: LaunchData): Promise<void> {
   log('info', `[TG] Broadcast complete to ${subscribers.size} subscriber(s)`);
 }
 
-// ─── Broadcast New Pools to Subscribers ────────────────────────────────────────
-
-async function broadcastNewPools(pools: PoolInfo[]): Promise<void> {
-  if (subscribers.size === 0) {
-    log('debug', '[TG] No subscribers to broadcast pools to');
-    return;
-  }
-
-  for (const pool of pools) {
-    const text =
-      `🏊 *New Degenter Pool!*\n\n` +
-      `🪙 *Token:* \`${pool.tokenSymbol}\`\n` +
-      `💱 *Pair:* ${pool.baseSymbol} / ${pool.quoteSymbol}\n` +
-      `📄 *Contract:* \`${pool.pairContract}\`\n` +
-      `📅 *Created:* ${pool.createdAt.slice(0, 10)}\n` +
-      (pool.priceUsd != null ? `💰 *Price:* $${pool.priceUsd}\n` : '') +
-      (pool.tvlUsd != null ? `🔒 *TVL:* $${pool.tvlUsd.toLocaleString()}\n` : '') +
-      (pool.volumeUsd != null ? `📊 *Volume 24h:* $${pool.volumeUsd.toLocaleString()}\n` : '');
-
-    const sendPromises = [...subscribers].map(async (chatId) => {
-      try {
-        await bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes('bot was blocked') || msg.includes('chat not found') || msg.includes('user is deactivated')) {
-          log('warn', `[TG] Removing unreachable subscriber chatId=${chatId}: ${msg}`);
-          subscribers.delete(chatId);
-          saveSubscribers(subscribers);
-        } else {
-          log('error', `[TG] Failed to send pool alert to chatId=${chatId}: ${msg}`);
-        }
-      }
-    });
-
-    await Promise.allSettled(sendPromises);
-  }
-
-  log('info', `[TG] Pool broadcast: ${pools.length} pool(s) sent to ${subscribers.size} subscriber(s)`);
-}
-
-// ─── Types ───────────────────────────────────────────────────────────────────
+// --- Broadcast New Pools to Subscribers ----------------------------------------
 
 interface LaunchData {
   symbol: string | null;
@@ -300,6 +277,7 @@ interface LaunchData {
   denom: string | null;
   creator: string | null;
   imageUri: string | null;
+  txHash: string | null;
 }
 
 interface TendermintEventAttribute {
@@ -313,7 +291,11 @@ interface TendermintEvent {
 }
 
 interface TendermintResult {
+  hash?: string;
   events?: Record<string, string[]> | TendermintEvent[];
+  tx_result?: {
+    events?: TendermintEvent[];
+  };
   data?: {
     value?: {
       TxResult?: {
@@ -331,7 +313,7 @@ interface RpcMessage {
   error?: { code: number; message: string; data?: string };
 }
 
-// ─── Deduplication ───────────────────────────────────────────────────────────
+// --- Deduplication -----------------------------------------------------------
 
 const COOLDOWN_MS = 60_000;
 const seenDenoms = new Map<string, number>();
@@ -346,7 +328,7 @@ function isDuplicate(denom: string): boolean {
   return false;
 }
 
-// ─── Safe Helpers ─────────────────────────────────────────────────────────────
+// --- Safe Helpers -------------------------------------------------------------
 
 function safeJsonParse(raw: string): unknown {
   try {
@@ -362,22 +344,89 @@ function normalizeStr(val: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-// ─── Event Parsing ────────────────────────────────────────────────────────────
+function extractQuotedField(raw: string, field: string): string | null {
+  const escapedField = field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`${escapedField}:"([^"]+)"`);
+  const match = raw.match(regex);
+  return match?.[1] ?? null;
+}
 
-function extractDenomMetadataUpdated(result: TendermintResult): Record<string, string> | null {
-  const events = result.events;
+function buildTemplateUrl(template: string, denom: string | null, txHash: string | null): string {
+  let url = template;
+  if (url.includes('{denom}')) {
+    url = url.replace('{denom}', encodeURIComponent(denom ?? ''));
+  } else if (denom && /\/$/.test(url)) {
+    url = `${url}${encodeURIComponent(denom)}`;
+  }
+  if (url.includes('{tx_hash}')) {
+    url = url.replace('{tx_hash}', encodeURIComponent(txHash ?? ''));
+  }
+  if (url.includes('{txHash}')) {
+    url = url.replace('{txHash}', encodeURIComponent(txHash ?? ''));
+  }
+  return url;
+}
+
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function eventAttrsToRecord(event: TendermintEvent | undefined): Record<string, string> {
+  if (!event) return {};
+
+  const attrs: Record<string, string> = {};
+  if (Array.isArray(event.attributes)) {
+    for (const attr of event.attributes as TendermintEventAttribute[]) {
+      if (attr.key && attr.value !== undefined) attrs[attr.key] = attr.value;
+    }
+    return attrs;
+  }
+
+  if (typeof event.attributes === 'object' && event.attributes !== null) {
+    for (const [k, v] of Object.entries(event.attributes as Record<string, string>)) {
+      attrs[k] = v;
+    }
+  }
+  return attrs;
+}
+
+// --- Event Parsing ------------------------------------------------------------
+
+function extractCreateDenomFromEvents(
+  events: Record<string, string[]> | TendermintEvent[] | undefined
+): Record<string, string> | null {
   if (!events) return null;
 
   // Shape 1: Dict style
   if (!Array.isArray(events)) {
     const dictEvents = events as Record<string, string[]>;
-    const hasDmu = Object.keys(dictEvents).some((k) => k.startsWith('denom_metadata_updated'));
-    if (!hasDmu) return null;
+    const wasmMethod = dictEvents['wasm.method']?.[0] ?? '';
+    const messageAction = dictEvents['message.action']?.[0] ?? '';
+    const hasCreateDenomPrefix = Object.keys(dictEvents).some(
+      (k) => k.startsWith('create_denom.') || k.startsWith('denom_created.')
+    );
+    const isCreateDenom =
+      wasmMethod === 'create_denom' ||
+      messageAction === '/zigchain.factory.MsgCreateDenom' ||
+      hasCreateDenomPrefix;
+    if (!isCreateDenom) return null;
 
     const attrs: Record<string, string> = {};
     for (const [key, values] of Object.entries(dictEvents)) {
-      if (key.startsWith('denom_metadata_updated.')) {
-        const attrKey = key.replace('denom_metadata_updated.', '');
+      if (key.startsWith('create_denom.')) {
+        const attrKey = key.replace('create_denom.', '');
+        attrs[attrKey] = Array.isArray(values) ? (values[0] ?? '') : String(values);
+      } else if (key.startsWith('wasm.')) {
+        const attrKey = key.replace('wasm.', '');
+        attrs[attrKey] = Array.isArray(values) ? (values[0] ?? '') : String(values);
+      } else if (key.startsWith('denom_created.')) {
+        const attrKey = key.replace('denom_created.', '');
+        attrs[attrKey] = Array.isArray(values) ? (values[0] ?? '') : String(values);
+      } else if (key.startsWith('message.')) {
+        const attrKey = key.replace('message.', '');
         attrs[attrKey] = Array.isArray(values) ? (values[0] ?? '') : String(values);
       }
     }
@@ -386,43 +435,97 @@ function extractDenomMetadataUpdated(result: TendermintResult): Record<string, s
 
   // Shape 2: List style
   const listEvents = events as TendermintEvent[];
-  const dmuEvent = listEvents.find((e) => e.type === 'denom_metadata_updated');
-  if (!dmuEvent) return null;
+  const createDenomEvent = listEvents.find((e) => e.type === 'create_denom') ?? listEvents.find((e) => e.type === 'wasm');
+  const denomCreatedEvent = listEvents.find((e) => e.type === 'denom_created');
+  const createDenomMessageEvent = listEvents.find((e) => {
+    if (e.type !== 'message') return false;
+    const attrs = eventAttrsToRecord(e);
+    return attrs['action'] === '/zigchain.factory.MsgCreateDenom';
+  });
+
+  if (!createDenomEvent && !denomCreatedEvent && !createDenomMessageEvent) return null;
+
+  const attrs: Record<string, string> = {
+    ...eventAttrsToRecord(createDenomMessageEvent),
+    ...eventAttrsToRecord(createDenomEvent),
+    ...eventAttrsToRecord(denomCreatedEvent),
+  };
+
+  if (
+    attrs['action'] !== '/zigchain.factory.MsgCreateDenom' &&
+    attrs['method'] !== 'create_denom' &&
+    !attrs['denom']
+  ) {
+    return null;
+  }
+  return Object.keys(attrs).length > 0 ? attrs : null;
+}
+
+function extractCreateDenom(result: TendermintResult): Record<string, string> | null {
+  return extractCreateDenomFromEvents(result.events);
+}
+
+function extractDenomMetadataFromEvents(
+  events: Record<string, string[]> | TendermintEvent[] | undefined
+): Record<string, string> | null {
+  if (!events) return null;
+
+  // Shape 1: Dict style
+  if (!Array.isArray(events)) {
+    const dictEvents = events as Record<string, string[]>;
+    const metadataRaw = dictEvents['denom_metadata_updated.denom_metadata']?.[0] ?? '';
+    if (!metadataRaw) return null;
+
+    const base = extractQuotedField(metadataRaw, 'base');
+    const name = extractQuotedField(metadataRaw, 'name');
+    const symbol = extractQuotedField(metadataRaw, 'symbol');
+    const uri = extractQuotedField(metadataRaw, 'uri');
+    const signer = dictEvents['denom_metadata_updated.signer']?.[0] ?? '';
+
+    const attrs: Record<string, string> = {};
+    if (base) attrs['denom'] = base;
+    if (name) attrs['name'] = name;
+    if (symbol) attrs['symbol'] = symbol;
+    if (uri) attrs['uri'] = uri;
+    if (signer) attrs['signer'] = signer;
+    attrs['denom_metadata'] = metadataRaw;
+
+    return Object.keys(attrs).length > 0 ? attrs : null;
+  }
+
+  // Shape 2: List style
+  const listEvents = events as TendermintEvent[];
+  const metadataEvent = listEvents.find((e) => e.type === 'denom_metadata_updated');
+  if (!metadataEvent) return null;
+
+  const metadataAttrs = eventAttrsToRecord(metadataEvent);
+  const metadataRaw = metadataAttrs['denom_metadata'];
+  if (!metadataRaw) return null;
+
+  const base = extractQuotedField(metadataRaw, 'base');
+  const name = extractQuotedField(metadataRaw, 'name');
+  const symbol = extractQuotedField(metadataRaw, 'symbol');
+  const uri = extractQuotedField(metadataRaw, 'uri');
 
   const attrs: Record<string, string> = {};
-  if (Array.isArray(dmuEvent.attributes)) {
-    for (const attr of dmuEvent.attributes as TendermintEventAttribute[]) {
-      if (attr.key && attr.value !== undefined) attrs[attr.key] = attr.value;
-    }
-  } else if (typeof dmuEvent.attributes === 'object' && dmuEvent.attributes !== null) {
-    const objAttrs = dmuEvent.attributes as Record<string, string>;
-    for (const [k, v] of Object.entries(objAttrs)) attrs[k] = v;
-  }
+  if (base) attrs['denom'] = base;
+  if (name) attrs['name'] = name;
+  if (symbol) attrs['symbol'] = symbol;
+  if (uri) attrs['uri'] = uri;
+  if (metadataAttrs['signer']) attrs['signer'] = metadataAttrs['signer'];
+  attrs['denom_metadata'] = metadataRaw;
 
   return Object.keys(attrs).length > 0 ? attrs : null;
 }
 
 function extractFromTxResult(result: TendermintResult): Record<string, string> | null {
-  const txEvents = result.data?.value?.TxResult?.result?.events;
-  if (!txEvents || !Array.isArray(txEvents)) return null;
-
-  const dmuEvent = (txEvents as TendermintEvent[]).find((e) => e.type === 'denom_metadata_updated');
-  if (!dmuEvent) return null;
-
-  const attrs: Record<string, string> = {};
-  if (Array.isArray(dmuEvent.attributes)) {
-    for (const attr of dmuEvent.attributes as TendermintEventAttribute[]) {
-      if (attr.key && attr.value !== undefined) attrs[attr.key] = attr.value;
-    }
-  } else if (typeof dmuEvent.attributes === 'object' && dmuEvent.attributes !== null) {
-    const objAttrs = dmuEvent.attributes as Record<string, string>;
-    for (const [k, v] of Object.entries(objAttrs)) attrs[k] = v;
-  }
-
-  return Object.keys(attrs).length > 0 ? attrs : null;
+  const txEvents =
+    result.tx_result?.events ??
+    result.data?.value?.TxResult?.result?.events;
+  return extractCreateDenomFromEvents(txEvents);
 }
 
-// ─── Data Extraction ──────────────────────────────────────────────────────────
+// --- Data Extraction ----------------------------------------------------------
 
 function extractLaunchData(attrs: Record<string, string>): LaunchData {
   const metadataRaw = attrs['metadata'] ?? attrs['denom_metadata'] ?? null;
@@ -442,7 +545,11 @@ function extractLaunchData(attrs: Record<string, string>): LaunchData {
     normalizeStr(attrs['name']) ??
     null;
   const denom =
-    normalizeStr(parsedMeta['base']) ?? normalizeStr(attrs['denom']) ?? null;
+    normalizeStr(parsedMeta['base']) ??
+    normalizeStr(attrs['new_token_denom']) ??
+    normalizeStr(attrs['token_denom']) ??
+    normalizeStr(attrs['denom']) ??
+    null;
   const creator =
     normalizeStr(attrs['creator']) ??
     normalizeStr(attrs['sender']) ??
@@ -453,11 +560,12 @@ function extractLaunchData(attrs: Record<string, string>): LaunchData {
     normalizeStr(attrs['uri']) ??
     normalizeStr(attrs['uri_hash']) ??
     null;
+  const txHash = normalizeStr(attrs['tx_hash']) ?? null;
 
-  return { symbol, name, denom, creator, imageUri };
+  return { symbol, name, denom, creator, imageUri, txHash };
 }
 
-// ─── Optional API Enrichment ──────────────────────────────────────────────────
+// --- Optional API Enrichment --------------------------------------------------
 
 async function enrichFromApi(data: LaunchData): Promise<LaunchData> {
   if (!MDF_TOKEN_API_BASE) return data;
@@ -483,6 +591,7 @@ async function enrichFromApi(data: LaunchData): Promise<LaunchData> {
           data.imageUri ??
           normalizeStr(body['imageUri']) ??
           normalizeStr(body['image']),
+        txHash: data.txHash,
       };
     }
   } catch (err: unknown) {
@@ -492,7 +601,7 @@ async function enrichFromApi(data: LaunchData): Promise<LaunchData> {
   return data;
 }
 
-// ─── Launch Emission ──────────────────────────────────────────────────────────
+// --- Launch Emission ----------------------------------------------------------
 
 async function emitLaunch(data: LaunchData): Promise<void> {
   const symbol = data.symbol ?? 'unknown';
@@ -500,17 +609,19 @@ async function emitLaunch(data: LaunchData): Promise<void> {
   const denom = data.denom ?? 'unknown';
   const creator = data.creator ?? 'unknown';
   const image = data.imageUri ?? 'none';
+  const txHash = data.txHash ?? 'none';
 
   // Console output (strict format per spec)
   console.log(
-    `[MDF LAUNCH] symbol=${symbol} name=${name} denom=${denom} creator=${creator} image=${image} source=denom_metadata_updated`
+    `[MDF LAUNCH] symbol=${symbol} name=${name} denom=${denom} creator=${creator} image=${image} txHash=${txHash} source=create_denom`
   );
+  log('info', `[MDF RAW] ${JSON.stringify(data)}`);
 
   // Telegram broadcast to all subscribers
   await broadcastLaunch(data);
 }
 
-// ─── Message Handler ──────────────────────────────────────────────────────────
+// --- Message Handler ----------------------------------------------------------
 
 async function handleMessage(raw: string): Promise<void> {
   const msg = safeJsonParse(raw) as RpcMessage | null;
@@ -523,16 +634,30 @@ async function handleMessage(raw: string): Promise<void> {
 
   const result = msg.result;
   if (!result || typeof result !== 'object') return;
+  const txHash = normalizeStr(result.hash);
 
-  // CRITICAL: Only emit from denom_metadata_updated
-  let attrs = extractDenomMetadataUpdated(result);
+  // CRITICAL: Only emit from create_denom
+  let attrs = extractCreateDenom(result);
   if (!attrs) attrs = extractFromTxResult(result);
   if (!attrs) {
-    log('debug', '[WS] No denom_metadata_updated event — skipping');
+    log('debug', '[WS] No create_denom event — skipping');
     return;
   }
 
-  log('debug', '[WS] denom_metadata_updated event detected');
+  log('debug', '[WS] create_denom event detected');
+
+  // Best-effort enrichment from denom_metadata_updated in same tx payload.
+  const metaFromTop = extractDenomMetadataFromEvents(result.events);
+  const metaFromTx = extractDenomMetadataFromEvents(
+    result.tx_result?.events ?? result.data?.value?.TxResult?.result?.events
+  );
+  const metadataAttrs = metaFromTop ?? metaFromTx;
+  if (metadataAttrs) {
+    attrs = { ...attrs, ...metadataAttrs };
+  }
+  if (txHash) {
+    attrs['tx_hash'] = txHash;
+  }
 
   let launchData = extractLaunchData(attrs);
 
@@ -546,7 +671,7 @@ async function handleMessage(raw: string): Promise<void> {
   await emitLaunch(launchData);
 }
 
-// ─── WebSocket Manager ────────────────────────────────────────────────────────
+// --- WebSocket Manager --------------------------------------------------------
 
 let ws: WebSocket | null = null;
 let reconnectAttempt = 0;
@@ -556,13 +681,8 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 const SUBSCRIPTIONS = [
   {
     id: 1,
-    label: 'create_denom',
-    query: `tm.event='Tx' AND wasm._contract_address='${MDF_CONTRACT}' AND wasm.method='create_denom'`,
-  },
-  {
-    id: 2,
-    label: 'denom_metadata_updated',
-    query: `tm.event='Tx' AND denom_metadata_updated.module='factory'`,
+    label: 'MsgCreateDenom',
+    query: `tm.event='Tx' AND message.action='/zigchain.factory.MsgCreateDenom'`,
   },
 ];
 
@@ -615,7 +735,7 @@ function scheduleReconnect(): void {
   reconnectTimer = setTimeout(() => connect(), delay);
 }
 
-// ─── Graceful Shutdown ────────────────────────────────────────────────────────
+// --- Graceful Shutdown --------------------------------------------------------
 
 function shutdown(signal: string): void {
   log('info', `[WS] Received ${signal}. Shutting down gracefully...`);
@@ -625,8 +745,6 @@ function shutdown(signal: string): void {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
-
-  stopPoolMonitor();
   bot.stopPolling().catch(() => undefined);
 
   if (ws) {
@@ -641,7 +759,7 @@ function shutdown(signal: string): void {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-// ─── Entry Point ──────────────────────────────────────────────────────────────
+// --- Entry Point --------------------------------------------------------------
 
 log('info', '=== MDF Launch Tracker + Telegram Bot starting ===');
 log('info', `[CONFIG] RPC_WS=${RPC_WS}`);
@@ -650,10 +768,10 @@ log('info', `[CONFIG] MDF_TOKEN_API_BASE=${MDF_TOKEN_API_BASE || '(not set)'}`);
 log('info', `[CONFIG] LOG_LEVEL=${LOG_LEVEL}`);
 log('info', `[CONFIG] Subscribers loaded: ${subscribers.size}`);
 log('info', '');
-log('info', '⚠️  Launch alerts are ONLY emitted from denom_metadata_updated events.');
+log('info', 'Launch alerts are emitted from create_denom events.');
 log('info', '');
 
 connect();
 
-// Start Degenter pool monitor (first run silently seeds cache, then alerts every 5 min)
-startPoolMonitor(DATA_DIR, log, broadcastNewPools, false);
+
+
