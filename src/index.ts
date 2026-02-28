@@ -269,7 +269,65 @@ async function broadcastLaunch(data: LaunchData): Promise<void> {
   log('info', `[TG] Broadcast complete to ${subscribers.size} subscriber(s)`);
 }
 
-// --- Broadcast New Pools to Subscribers ----------------------------------------
+// --- Broadcast Liquidity Pool Alert to Subscribers ----------------------------
+
+interface LiquidityData {
+  tokenSymbol: string;
+  tokenDenom: string;
+  tokenAmount: string;
+  zigAmount: string;
+  pairType: string;
+  creator: string;
+  txHash: string | null;
+}
+
+async function broadcastLiquidity(data: LiquidityData): Promise<void> {
+  if (subscribers.size === 0) {
+    log('debug', '[TG] No subscribers to broadcast liquidity to');
+    return;
+  }
+
+  const htmlText =
+    `<blockquote>⚡ New Liquidity Pool Detected</blockquote>\n\n` +
+    `🪙 <b>Token Name:</b> ${escapeHtml(data.tokenSymbol)}\n\n` +
+    `📜 <b>Contract:</b>\n` +
+    `<code>${escapeHtml(data.creator)}</code>`;
+
+  const denom = data.tokenDenom;
+  const degenterUrl = buildTemplateUrl(DEGENTER_LINK_TEMPLATE, denom, data.txHash);
+  const oroswapUrl = buildTemplateUrl(OROSWAP_LINK_TEMPLATE, denom, data.txHash);
+  const txUrl = buildTemplateUrl(ZIGSCAN_TX_TEMPLATE, denom, data.txHash);
+  const liqKeyboard: TelegramBot.InlineKeyboardMarkup = {
+    inline_keyboard: [[
+      { text: 'Degenter', url: degenterUrl },
+      { text: 'Oroswap', url: oroswapUrl },
+      { text: 'TX Link', url: txUrl },
+    ]],
+  };
+
+  const sendPromises = [...subscribers].map(async (chatId) => {
+    try {
+      await bot.sendMessage(chatId, htmlText, {
+        parse_mode: 'HTML',
+        reply_markup: liqKeyboard,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('bot was blocked') || msg.includes('chat not found') || msg.includes('user is deactivated')) {
+        log('warn', `[TG] Removing unreachable subscriber chatId=${chatId}: ${msg}`);
+        subscribers.delete(chatId);
+        saveSubscribers(subscribers);
+      } else {
+        log('error', `[TG] Failed to send liquidity alert to chatId=${chatId}: ${msg}`);
+      }
+    }
+  });
+
+  await Promise.allSettled(sendPromises);
+  log('info', `[TG] Liquidity broadcast complete to ${subscribers.size} subscriber(s)`);
+}
+
+// --- Types -------------------------------------------------------------------
 
 interface LaunchData {
   symbol: string | null;
@@ -636,11 +694,24 @@ async function handleMessage(raw: string): Promise<void> {
   if (!result || typeof result !== 'object') return;
   const txHash = normalizeStr(result.hash);
 
-  // CRITICAL: Only emit from create_denom
+  // --- Check for liquidity event first ---
+  const liqData = extractLiquidityEvent(result, txHash);
+  if (liqData) {
+    const liqKey = `liq:${liqData.tokenDenom}:${liqData.creator}`;
+    if (!isDuplicate(liqKey)) {
+      log('info', `[LIQ] New liquidity pool: ${liqData.tokenSymbol} (${liqData.zigAmount} uzig)`);
+      await broadcastLiquidity(liqData);
+    } else {
+      log('info', `[DEDUP] Skipping duplicate liquidity for ${liqKey}`);
+    }
+    // Don't return — the same tx might also contain a create_denom event
+  }
+
+  // --- Check for create_denom event ---
   let attrs = extractCreateDenom(result);
   if (!attrs) attrs = extractFromTxResult(result);
   if (!attrs) {
-    log('debug', '[WS] No create_denom event — skipping');
+    if (!liqData) log('debug', '[WS] No create_denom or liquidity event — skipping');
     return;
   }
 
@@ -661,6 +732,12 @@ async function handleMessage(raw: string): Promise<void> {
 
   let launchData = extractLaunchData(attrs);
 
+  // Filter out Oroswap LP tokens — these are auto-created when liquidity is provided
+  if (launchData.denom && launchData.denom.endsWith('.oroswaplptoken')) {
+    log('debug', `[WS] Skipping Oroswap LP token: ${launchData.denom}`);
+    return;
+  }
+
   const denomKey = launchData.denom ?? JSON.stringify(attrs);
   if (isDuplicate(denomKey)) {
     log('info', `[DEDUP] Skipping duplicate launch for denom: ${denomKey}`);
@@ -669,6 +746,141 @@ async function handleMessage(raw: string): Promise<void> {
 
   launchData = await enrichFromApi(launchData);
   await emitLaunch(launchData);
+}
+
+// --- Liquidity Event Extraction -----------------------------------------------
+
+function extractLiquidityEvent(
+  result: TendermintResult,
+  txHash: string | null
+): LiquidityData | null {
+  // Check both top-level events and tx_result events
+  const allEventSources = [
+    result.events,
+    result.tx_result?.events,
+    result.data?.value?.TxResult?.result?.events,
+  ];
+
+  for (const events of allEventSources) {
+    if (!events) continue;
+
+    // Shape 1: Dict style — keys like "wasm.action"
+    if (!Array.isArray(events)) {
+      const dictEvents = events as Record<string, string[]>;
+      // wasm.action may have multiple values (factory + LP); find the one we need
+      const wasmActions = dictEvents['wasm.action'] ?? [];
+      if (!wasmActions.includes('create_pair_and_provide_liquidity')) continue;
+
+      // Extract from wasm.* attributes
+      const sender = dictEvents['message.sender']?.[0] ?? '';
+      const pairType = dictEvents['wasm.pair_type']?.[0] ?? 'xyk';
+
+      // Find token denom from wasm.assets (the non-uzig one)
+      let tokenDenom = '';
+      let tokenAmount = '0';
+      let zigAmount = '0';
+
+      // wasm.assets may have multiple values — iterate all of them
+      const allAssets = dictEvents['wasm.assets'] ?? [];
+      for (const assetVal of allAssets) {
+        const parts = assetVal.split(',').map(s => s.trim());
+        for (const part of parts) {
+          if (part.includes('uzig')) {
+            const amt = part.replace(/[^0-9]/g, '');
+            if (amt) zigAmount = amt;
+          } else if (part.includes('coin.')) {
+            // Extract amount and denom: "10000000000coin.zig1...sharky"
+            const match = part.match(/^(\d+)(coin\..+)$/);
+            if (match) {
+              tokenAmount = match[1];
+              tokenDenom = match[2];
+            }
+          }
+        }
+      }
+
+      // Fallback: try coin_spent / coin_received events
+      if (!tokenDenom) {
+        const coinSpent = dictEvents['coin_spent.amount'] ?? [];
+        for (const coin of coinSpent) {
+          if (coin.includes('coin.') && !coin.includes('uzig')) {
+            const match = coin.match(/^(\d+)(.+)$/);
+            if (match) {
+              tokenAmount = match[1];
+              tokenDenom = match[2];
+            }
+          } else if (coin.includes('uzig')) {
+            zigAmount = coin.replace(/[^0-9]/g, '');
+          }
+        }
+      }
+
+      if (!tokenDenom && !sender) continue;
+
+      // Extract symbol from denom: "coin.zig1abc...xyz.sharky" → "sharky"
+      const tokenSymbol = tokenDenom.split('.').pop() ?? tokenDenom;
+
+      return {
+        tokenSymbol: tokenSymbol.toUpperCase(),
+        tokenDenom,
+        tokenAmount,
+        zigAmount,
+        pairType,
+        creator: sender,
+        txHash,
+      };
+    }
+
+    // Shape 2: List style
+    const listEvents = events as TendermintEvent[];
+    const wasmEvent = listEvents.find((e) => {
+      if (e.type !== 'wasm') return false;
+      const attrs = eventAttrsToRecord(e);
+      return attrs['action'] === 'create_pair_and_provide_liquidity';
+    });
+    if (!wasmEvent) continue;
+
+    const wasmAttrs = eventAttrsToRecord(wasmEvent);
+    const msgEvent = listEvents.find((e) => e.type === 'message');
+    const msgAttrs = msgEvent ? eventAttrsToRecord(msgEvent) : {};
+
+    let tokenDenom = '';
+    let tokenAmount = '0';
+    let zigAmount = '0';
+    const pairType = wasmAttrs['pair_type'] ?? 'xyk';
+    const sender = msgAttrs['sender'] ?? wasmAttrs['sender'] ?? '';
+
+    // Parse assets string
+    const assetsStr = wasmAttrs['assets'] ?? '';
+    if (assetsStr) {
+      const parts = assetsStr.split(',').map(s => s.trim());
+      for (const part of parts) {
+        if (part.includes('uzig')) {
+          zigAmount = part.replace(/[^0-9]/g, '');
+        } else {
+          const match = part.match(/^(\d+)(.+)$/);
+          if (match) {
+            tokenAmount = match[1];
+            tokenDenom = match[2];
+          }
+        }
+      }
+    }
+
+    const tokenSymbol = tokenDenom.split('.').pop() ?? tokenDenom;
+
+    return {
+      tokenSymbol: tokenSymbol.toUpperCase(),
+      tokenDenom,
+      tokenAmount,
+      zigAmount,
+      pairType,
+      creator: sender,
+      txHash,
+    };
+  }
+
+  return null;
 }
 
 // --- WebSocket Manager --------------------------------------------------------
@@ -683,6 +895,11 @@ const SUBSCRIPTIONS = [
     id: 1,
     label: 'MsgCreateDenom',
     query: `tm.event='Tx' AND message.action='/zigchain.factory.MsgCreateDenom'`,
+  },
+  {
+    id: 2,
+    label: 'CreatePairAndProvideLiquidity',
+    query: `tm.event='Tx' AND wasm.action='create_pair_and_provide_liquidity'`,
   },
 ];
 
@@ -768,7 +985,7 @@ log('info', `[CONFIG] MDF_TOKEN_API_BASE=${MDF_TOKEN_API_BASE || '(not set)'}`);
 log('info', `[CONFIG] LOG_LEVEL=${LOG_LEVEL}`);
 log('info', `[CONFIG] Subscribers loaded: ${subscribers.size}`);
 log('info', '');
-log('info', 'Launch alerts are emitted from create_denom events.');
+log('info', 'Launch alerts: create_denom | Liquidity alerts: create_pair_and_provide_liquidity');
 log('info', '');
 
 connect();
