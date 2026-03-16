@@ -98,9 +98,9 @@ bot.onText(/\/start/, (msg) => {
   bot
     .sendMessage(
       chatId,
-      `?? Hey ${firstName}!\n\n` +
+      `Hey ${firstName}!\n\n` +
         `I track *MemesDotFun (MDF)* token launches in real-time.\n\n` +
-        `${isSubbed ? '? You are currently *subscribed*.' : '?? You are not subscribed yet.'}\n\n` +
+        `${isSubbed ? 'You are currently *subscribed*.' : ' You are not subscribed yet.'}\n\n` +
         `Press the button below to ${isSubbed ? 'unsubscribe' : 'subscribe'}:`,
       {
         parse_mode: 'Markdown',
@@ -119,8 +119,8 @@ bot.onText(/\/status/, (msg) => {
     .sendMessage(
       chatId,
       isSubbed
-        ? '? You are *subscribed* to MDF launch alerts.'
-        : '?? You are *not subscribed*. Press /start to subscribe.',
+        ? ' You are *subscribed* to MDF launch alerts.'
+        : ' You are *not subscribed*. Press /start to subscribe.',
       {
         parse_mode: 'Markdown',
         reply_markup: getKeyboard(chatId),
@@ -161,12 +161,12 @@ bot.on('callback_query', (query) => {
     log('info', `[TG] Unsubscribed: chatId=${chatId} (total: ${subscribers.size})`);
 
     bot
-      .answerCallbackQuery(query.id, { text: '?? Unsubscribed. You will no longer receive alerts.' })
+      .answerCallbackQuery(query.id, { text: ' You are now unsubscribed. You will no longer receive alerts.' })
       .catch(() => undefined);
 
     bot
       .editMessageText(
-        `?? *Unsubscribed.*\n\nYou will no longer receive MDF launch alerts.\n\nPress the button to re-subscribe anytime.`,
+        ` You are now unsubscribed.\n\nYou will no longer receive MDF launch alerts.\n\nPress the button to re-subscribe anytime.`,
         {
           chat_id: chatId,
           message_id: messageId,
