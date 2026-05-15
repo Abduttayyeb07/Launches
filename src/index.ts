@@ -178,6 +178,69 @@ bot.on('callback_query', (query) => {
   }
 });
 
+// /test command — fires a mock launch + mock liquidity alert to the requesting chat only
+bot.onText(/\/test/, (msg) => {
+  const chatId = msg.chat.id;
+
+  const mockLaunch: LaunchData = {
+    symbol: 'TEST',
+    name: 'Test Token',
+    denom: 'coin.zig1testaddress.test',
+    creator: 'zig1testcreatoraddress',
+    imageUri: null,
+    txHash: 'ABCD1234EFGH5678',
+  };
+
+  const mockLiquidity: LiquidityData = {
+    tokenSymbol: 'TEST',
+    tokenDenom: 'coin.zig1testaddress.test',
+    tokenAmount: '1000000',
+    zigAmount: '500000',
+    pairType: 'xyk',
+    creator: 'zig1testcreatoraddress',
+    txHash: 'ABCD1234EFGH5678',
+  };
+
+  const denom = mockLaunch.denom!;
+  const txHash = mockLaunch.txHash;
+  const degenterUrl = buildTemplateUrl(DEGENTER_LINK_TEMPLATE, denom, txHash);
+  const oroswapUrl = buildTemplateUrl(OROSWAP_LINK_TEMPLATE, denom, txHash);
+  const txUrl = txHash ? buildTemplateUrl(ZIGSCAN_TX_TEMPLATE, denom, txHash) : null;
+  const launchButtons: TelegramBot.InlineKeyboardButton[] = [
+    { text: 'Degenter', url: degenterUrl },
+    { text: 'Oroswap', url: oroswapUrl },
+  ];
+  if (txUrl) launchButtons.push({ text: 'TX Link', url: txUrl });
+
+  bot.sendMessage(
+    chatId,
+    `<blockquote>⚡ New Token Detected Onchain!</blockquote>\n\n` +
+    `🌕 <b>Token Name:</b> ${escapeHtml(mockLaunch.name!)}\n\n` +
+    `📜 <b>Contract:</b>\n<code>${escapeHtml(denom)}</code>\n\n` +
+    `👤 <b>Creator:</b> ${escapeHtml(mockLaunch.creator!)}`,
+    { parse_mode: 'HTML', reply_markup: { inline_keyboard: [launchButtons] } }
+  ).catch((e: Error) => log('error', `[TEST] Launch alert failed: ${e.message}`));
+
+  const liqDenom = mockLiquidity.tokenDenom;
+  const liqTxUrl = mockLiquidity.txHash ? buildTemplateUrl(ZIGSCAN_TX_TEMPLATE, liqDenom, mockLiquidity.txHash) : null;
+  const liqButtons: TelegramBot.InlineKeyboardButton[] = [
+    { text: 'Degenter', url: buildTemplateUrl(DEGENTER_LINK_TEMPLATE, liqDenom, mockLiquidity.txHash) },
+    { text: 'Oroswap', url: buildTemplateUrl(OROSWAP_LINK_TEMPLATE, liqDenom, mockLiquidity.txHash) },
+  ];
+  if (liqTxUrl) liqButtons.push({ text: 'TX Link', url: liqTxUrl });
+
+  bot.sendMessage(
+    chatId,
+    `<blockquote>⚡ New Liquidity Pool Detected</blockquote>\n\n` +
+    `🪙 <b>Token Name:</b> ${escapeHtml(mockLiquidity.tokenSymbol)}\n\n` +
+    `📜 <b>Contract:</b>\n<code>${escapeHtml(liqDenom)}</code>\n\n` +
+    `👤 <b>Creator:</b> ${escapeHtml(mockLiquidity.creator)}`,
+    { parse_mode: 'HTML', reply_markup: { inline_keyboard: [liqButtons] } }
+  ).catch((e: Error) => log('error', `[TEST] Liquidity alert failed: ${e.message}`));
+
+  log('info', `[TEST] Sent mock alerts to chatId=${chatId}`);
+});
+
 let pollingBackoffMs = 5_000;
 let pollingBackoffTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -236,13 +299,14 @@ async function broadcastLaunch(data: LaunchData): Promise<void> {
     `👤 <b>Creator:</b> ${escapeHtml(creator)}`;
   const degenterUrl = buildTemplateUrl(DEGENTER_LINK_TEMPLATE, denom, txHash);
   const oroswapUrl = buildTemplateUrl(OROSWAP_LINK_TEMPLATE, denom, txHash);
-  const txUrl = buildTemplateUrl(ZIGSCAN_TX_TEMPLATE, denom, txHash);
+  const txUrl = txHash ? buildTemplateUrl(ZIGSCAN_TX_TEMPLATE, denom, txHash) : null;
+  const launchButtons: TelegramBot.InlineKeyboardButton[] = [
+    { text: 'Degenter', url: degenterUrl },
+    { text: 'Oroswap', url: oroswapUrl },
+  ];
+  if (txUrl) launchButtons.push({ text: 'TX Link', url: txUrl });
   const launchKeyboard: TelegramBot.InlineKeyboardMarkup = {
-    inline_keyboard: [[
-      { text: 'Degenter', url: degenterUrl },
-      { text: 'Oroswap', url: oroswapUrl },
-      { text: 'TX Link', url: txUrl },
-    ]],
+    inline_keyboard: [launchButtons],
   };
 
   const sendPromises = [...subscribers].map(async (chatId) => {
@@ -287,22 +351,24 @@ async function broadcastLiquidity(data: LiquidityData): Promise<void> {
     return;
   }
 
+  const denom = data.tokenDenom;
   const htmlText =
     `<blockquote>⚡ New Liquidity Pool Detected</blockquote>\n\n` +
     `🪙 <b>Token Name:</b> ${escapeHtml(data.tokenSymbol)}\n\n` +
     `📜 <b>Contract:</b>\n` +
-    `<code>${escapeHtml(data.creator)}</code>`;
+    `<code>${escapeHtml(denom)}</code>\n\n` +
+    `👤 <b>Creator:</b> ${escapeHtml(data.creator)}`;
 
-  const denom = data.tokenDenom;
   const degenterUrl = buildTemplateUrl(DEGENTER_LINK_TEMPLATE, denom, data.txHash);
   const oroswapUrl = buildTemplateUrl(OROSWAP_LINK_TEMPLATE, denom, data.txHash);
-  const txUrl = buildTemplateUrl(ZIGSCAN_TX_TEMPLATE, denom, data.txHash);
+  const txUrl = data.txHash ? buildTemplateUrl(ZIGSCAN_TX_TEMPLATE, denom, data.txHash) : null;
+  const liqButtons: TelegramBot.InlineKeyboardButton[] = [
+    { text: 'Degenter', url: degenterUrl },
+    { text: 'Oroswap', url: oroswapUrl },
+  ];
+  if (txUrl) liqButtons.push({ text: 'TX Link', url: txUrl });
   const liqKeyboard: TelegramBot.InlineKeyboardMarkup = {
-    inline_keyboard: [[
-      { text: 'Degenter', url: degenterUrl },
-      { text: 'Oroswap', url: oroswapUrl },
-      { text: 'TX Link', url: txUrl },
-    ]],
+    inline_keyboard: [liqButtons],
   };
 
   const sendPromises = [...subscribers].map(async (chatId) => {
