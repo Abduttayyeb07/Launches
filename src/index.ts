@@ -79,8 +79,8 @@ log('info', `[STORE] Loaded ${subscribers.size} subscriber(s) from disk`);
 
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN as string, { polling: true });
 
-const SUBSCRIBE_BTN = { text: '?? Subscribe to MDF Launches', callback_data: 'subscribe' };
-const UNSUBSCRIBE_BTN = { text: '?? Unsubscribe', callback_data: 'unsubscribe' };
+const SUBSCRIBE_BTN = { text: 'Subscribe to MDF Launches', callback_data: 'subscribe' };
+const UNSUBSCRIBE_BTN = { text: 'Unsubscribe', callback_data: 'unsubscribe' };
 
 function getKeyboard(chatId: number): TelegramBot.InlineKeyboardMarkup {
   const isSubbed = subscribers.has(chatId);
@@ -100,7 +100,7 @@ bot.onText(/\/start/, (msg) => {
       chatId,
       `Hey ${firstName}!\n\n` +
         `I track *MemesDotFun (MDF)* token launches in real-time.\n\n` +
-        `${isSubbed ? 'You are currently *subscribed*.' : ' You are not subscribed yet.'}\n\n` +
+        `${isSubbed ? 'You are currently *subscribed*.' : 'You are not subscribed yet.'}\n\n` +
         `Press the button below to ${isSubbed ? 'unsubscribe' : 'subscribe'}:`,
       {
         parse_mode: 'Markdown',
@@ -119,8 +119,8 @@ bot.onText(/\/status/, (msg) => {
     .sendMessage(
       chatId,
       isSubbed
-        ? ' You are *subscribed* to MDF launch alerts.'
-        : ' You are *not subscribed*. Press /start to subscribe.',
+        ? 'You are *subscribed* to MDF launch alerts.'
+        : 'You are *not subscribed*. Press /start to subscribe.',
       {
         parse_mode: 'Markdown',
         reply_markup: getKeyboard(chatId),
@@ -141,12 +141,12 @@ bot.on('callback_query', (query) => {
     log('info', `[TG] New subscriber: chatId=${chatId} (total: ${subscribers.size})`);
 
     bot
-      .answerCallbackQuery(query.id, { text: '? Subscribed! You will receive MDF launch alerts.' })
+      .answerCallbackQuery(query.id, { text: 'Subscribed! You will receive MDF launch alerts.' })
       .catch(() => undefined);
 
     bot
       .editMessageText(
-        `? *Subscribed!*\n\nYou will now receive real-time MDF launch alerts.\n\nPress the button to unsubscribe anytime.`,
+        `*Subscribed!*\n\nYou will now receive real-time MDF launch alerts.\n\nPress the button to unsubscribe anytime.`,
         {
           chat_id: chatId,
           message_id: messageId,
@@ -161,12 +161,12 @@ bot.on('callback_query', (query) => {
     log('info', `[TG] Unsubscribed: chatId=${chatId} (total: ${subscribers.size})`);
 
     bot
-      .answerCallbackQuery(query.id, { text: ' You are now unsubscribed. You will no longer receive alerts.' })
+      .answerCallbackQuery(query.id, { text: 'You are now unsubscribed. You will no longer receive alerts.' })
       .catch(() => undefined);
 
     bot
       .editMessageText(
-        ` You are now unsubscribed.\n\nYou will no longer receive MDF launch alerts.\n\nPress the button to re-subscribe anytime.`,
+        `You are now unsubscribed.\n\nYou will no longer receive MDF launch alerts.\n\nPress the button to re-subscribe anytime.`,
         {
           chat_id: chatId,
           message_id: messageId,
@@ -893,8 +893,8 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 const SUBSCRIPTIONS = [
   {
     id: 1,
-    label: 'MsgCreateDenom',
-    query: `tm.event='Tx' AND message.action='/zigchain.factory.MsgCreateDenom'`,
+    label: 'MDF create_denom',
+    query: `tm.event='Tx' AND wasm._contract_address='${MDF_CONTRACT}'`,
   },
   {
     id: 2,
@@ -912,7 +912,7 @@ function subscribe(socket: WebSocket): void {
       params: { query: sub.query },
     });
     socket.send(payload);
-    log('info', `[WS] Subscribed to ${sub.label}`);
+    log('info', `[WS] Subscribed to ${sub.label}: ${sub.query}`);
   }
 }
 
