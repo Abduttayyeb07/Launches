@@ -17,7 +17,7 @@ const TELEGRAM_BOT_TOKEN = process.env['TELEGRAM_BOT_TOKEN'];
 const DEGENTER_LINK_TEMPLATE =
   process.env['DEGENTER_LINK_TEMPLATE'] ?? 'https://app.degenter.io/token/{denom}';
 const OROSWAP_LINK_TEMPLATE =
-  process.env['OROSWAP_LINK_TEMPLATE'] ?? 'https://app.oroswap.org/swap?from={denom}&to=uzig';
+  process.env['OROSWAP_LINK_TEMPLATE'] ?? 'https://app.oroswap.org/swap?from={denom}&to=azig';
 const ZIGSCAN_TX_TEMPLATE =
   process.env['ZIGSCAN_TX_TEMPLATE'] ?? 'https://www.zigscan.org/tx/{tx_hash}';
 
@@ -765,7 +765,7 @@ async function handleMessage(raw: string): Promise<void> {
   if (liqData) {
     const liqKey = `liq:${liqData.tokenDenom}:${liqData.creator}`;
     if (!isDuplicate(liqKey)) {
-      log('info', `[LIQ] New liquidity pool: ${liqData.tokenSymbol} (${liqData.zigAmount} uzig)`);
+      log('info', `[LIQ] New liquidity pool: ${liqData.tokenSymbol} (${liqData.zigAmount} azig)`);
       await broadcastLiquidity(liqData);
     } else {
       log('info', `[DEDUP] Skipping duplicate liquidity for ${liqKey}`);
@@ -841,7 +841,7 @@ function extractLiquidityEvent(
       const sender = dictEvents['message.sender']?.[0] ?? '';
       const pairType = dictEvents['wasm.pair_type']?.[0] ?? 'xyk';
 
-      // Find token denom from wasm.assets (the non-uzig one)
+      // Find token denom from wasm.assets (the non-azig one)
       let tokenDenom = '';
       let tokenAmount = '0';
       let zigAmount = '0';
@@ -851,7 +851,7 @@ function extractLiquidityEvent(
       for (const assetVal of allAssets) {
         const parts = assetVal.split(',').map(s => s.trim());
         for (const part of parts) {
-          if (part.includes('uzig')) {
+          if (part.includes('azig')) {
             const amt = part.replace(/[^0-9]/g, '');
             if (amt) zigAmount = amt;
           } else if (part.includes('coin.')) {
@@ -869,13 +869,13 @@ function extractLiquidityEvent(
       if (!tokenDenom) {
         const coinSpent = dictEvents['coin_spent.amount'] ?? [];
         for (const coin of coinSpent) {
-          if (coin.includes('coin.') && !coin.includes('uzig')) {
+          if (coin.includes('coin.') && !coin.includes('azig')) {
             const match = coin.match(/^(\d+)(.+)$/);
             if (match) {
               tokenAmount = match[1];
               tokenDenom = match[2];
             }
-          } else if (coin.includes('uzig')) {
+          } else if (coin.includes('azig')) {
             zigAmount = coin.replace(/[^0-9]/g, '');
           }
         }
@@ -921,7 +921,7 @@ function extractLiquidityEvent(
     if (assetsStr) {
       const parts = assetsStr.split(',').map(s => s.trim());
       for (const part of parts) {
-        if (part.includes('uzig')) {
+        if (part.includes('azig')) {
           zigAmount = part.replace(/[^0-9]/g, '');
         } else {
           const match = part.match(/^(\d+)(.+)$/);
